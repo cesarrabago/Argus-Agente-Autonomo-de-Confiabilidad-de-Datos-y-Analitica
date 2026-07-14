@@ -74,7 +74,7 @@ Datos sintéticos multicanal  →  dbt (staging → marts + tests + lineage)  �
 
 ## 📐 Arquitectura
 
-![Arquitectura de Argus](./docs/architecture.svg)
+![Arquitectura de Argus](./Img_Arq.png)
 
 Tres capas, cada una con una sola responsabilidad:
 
@@ -318,7 +318,7 @@ dbt source freshness
 ```bash
 # Backend de Claude CLI (ruta absoluta para evitar problemas de PATH bajo systemd/WSL)
 openclaw config set agents.defaults.cliBackends \
-  '{"claude-cli":{"command":"/home/<user>/.local/bin/claude"}}' --strict-json --merge
+  '{"claude-cli":{"command":"/home/crabago/.local/bin/claude"}}' --strict-json --merge
 
 # Registrar los skills + servidores MCP de Argus, luego reiniciar el gateway
 openclaw config set skills.allow '["run-quality-suite","text-to-sql","chart"]' --strict-json --merge
@@ -420,13 +420,13 @@ El paso de evals **falla el build** si la precisión del text-to-SQL cae por deb
 argus-data-agent/
 │
 ├── 📄 README.md
+├── 📄 Img_Arq.png                    ← diagrama de arquitectura referenciado arriba
 ├── 📄 docker-compose.yaml
 ├── 📄 requirements.txt
 ├── 📄 .env.example
 ├── 📄 dbt_project.yml
 │
 ├── 📂 docs/
-│   ├── architecture.svg              ← el diagrama referenciado arriba
 │   └── openclaw-setup.md             ← setup del backend claude-cli + MCP + cron
 │
 ├── 📂 data/
