@@ -2,17 +2,17 @@
 
 # 🛰️ Argus — Agente Autónomo de Confiabilidad de Datos y Analítica
 
-### Plataforma de datos agéntica que monitorea pipelines, se autodiagnostica ante incidentes y responde preguntas de negocio en lenguaje natural — construida sobre dbt, BigQuery y OpenClaw/Claude.
+### Plataforma de datos agéntica que monitorea pipelines, se autodiagnostica ante incidentes y responde preguntas de negocio en lenguaje natural — construida sobre dbt, BigQuery, OpenClaw y Claude.
 
 <br>
 
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![dbt](https://img.shields.io/badge/dbt-Transform%20%2B%20Tests-FF694B?style=for-the-badge&logo=dbt&logoColor=white)
 ![BigQuery](https://img.shields.io/badge/BigQuery-Warehouse-669DF6?style=for-the-badge&logo=googlebigquery&logoColor=white)
 ![OpenClaw](https://img.shields.io/badge/OpenClaw-Agent%20Gateway-E4572E?style=for-the-badge)
-![Claude](https://img.shields.io/badge/Claude-claude--cli-D97757?style=for-the-badge&logo=anthropic&logoColor=white)
-![Power BI](https://img.shields.io/badge/Power%20BI-Dashboards-F2C811?style=for-the-badge&logo=powerbi&logoColor=black)
-![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![Claude](https://img.shields.io/badge/Claude-Sonnet%205-D97757?style=for-the-badge&logo=anthropic&logoColor=white)
+![Slack](https://img.shields.io/badge/Slack-Alertas-4A154B?style=for-the-badge&logo=slack&logoColor=white)
+![Jira](https://img.shields.io/badge/Jira-Tickets-0052CC?style=for-the-badge&logo=jira&logoColor=white)
 ![GitHub Actions](https://img.shields.io/badge/CI%2FCD-Eval%20Gated-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)
 
 <br>
@@ -21,7 +21,7 @@
 
 <br>
 
-[🎯 Problema](#-el-problema) · [💡 Solución](#-la-solución) · [📐 Arquitectura](#-arquitectura) · [🤖 El Agente](#-la-capa-de-agente) · [🧱 Plataforma de Datos](#-plataforma-de-datos-dbt--bigquery) · [🧪 Evals](#-harness-de-evaluación) · [🛡️ Guardrails](#️-guardrails--seguridad) · [📈 Observabilidad](#-observabilidad--costo) · [🚀 Quick Start](#-quick-start) · [🩺 Decisiones de Diseño](#-decisiones-de-diseño--tradeoffs) · [📁 Estructura](#-estructura-del-proyecto)
+[🎯 Problema](#-el-problema) · [💡 Solución](#-la-solución) · [📐 Arquitectura](#-arquitectura) · [🧱 Plataforma de Datos](#-plataforma-de-datos-dbt--bigquery) · [🧮 Capa Semántica](#-capa-semántica) · [🛡️ Guardrails](#️-guardrails--seguridad) · [🤖 Text-to-SQL](#-text-to-sql) · [🚨 Monitoreo](#-monitoreo-autónomo-capacidad-1) · [📊 Digest](#-digest-ejecutivo-capacidad-3) · [🔌 OpenClaw](#-orquestación-openclaw--slack--jira-fase-8) · [🧪 Evals](#-harness-de-evaluación) · [🏢 Config por Cliente](#-configuración-por-cliente) · [🚀 Quick Start](#-quick-start) · [🩺 Decisiones de Diseño](#-decisiones-de-diseño--tradeoffs) · [📁 Estructura](#-estructura-del-proyecto)
 
 </div>
 
@@ -29,247 +29,266 @@
 
 ## 🎯 El Problema
 
-Toda empresa que opera sobre datos choca con los mismos dos modos de falla a medida que escala — y ninguno se resuelve agregando más dashboards:
+Toda empresa que opera sobre datos choca con los mismos dos modos de falla a medida que escala:
 
 | Síntoma | Impacto real |
 |---|---|
 | Los pipelines se rompen **en silencio** | Un KPI cambia y nadie sabe por qué hasta que un stakeholder se queja |
-| El análisis de causa raíz es **manual** | Los analistas de guardia queman horas escribiendo queries ad-hoc para rastrear un número malo |
+| El análisis de causa raíz es **manual** | Los analistas de guardia queman horas escribiendo queries ad-hoc |
 | Los checks de calidad viven **dentro de un script** | Sin lineage, sin historial, sin gate — el dato malo llega al warehouse |
-| Los analistas son un **cuello de botella** para preguntas | "¿Por qué bajaron las ventas en MX la semana pasada?" espera en una fila |
-| Los demos de LLM-sobre-SQL **alucinan joins** | Impresionan en la demo, fallan en producción, nadie confía en ellos |
-| Sin visibilidad de **costo / tokens** en la capa de IA | Un agente que responde preguntas también puede quemar el presupuesto en silencio |
-
-**La consecuencia:** respuesta lenta a incidentes, un equipo de analítica saturado, y una capa de IA en la que nadie confía porque no está gobernada, medida ni observada.
+| Los analistas son un **cuello de botella** para preguntas | "¿Por qué bajaron las ventas la semana pasada?" espera en una fila |
+| Los demos de LLM-sobre-SQL **alucinan joins** | Impresionan en la demo, fallan en producción |
 
 ---
 
 ## 💡 La Solución
 
-Una plataforma de datos gobernada con un agente autónomo encima. Los datos fluyen en una sola dirección; el agente lee la capa *gobernada*, nunca tablas crudas:
+Una plataforma de datos gobernada, con un agente encima que lee la capa *gobernada* — nunca tablas crudas:
 
 ```
-Datos sintéticos multicanal  →  dbt (staging → marts + tests + lineage)  →  BigQuery
+Datos sintéticos multicanal  →  dbt (staging → marts + tests)  →  BigQuery
                                           │
                                  Capa semántica (métricas gobernadas)
                                           │
+                                  Claude (Sonnet 5, vía API)
+                                          │
                         ┌─────────────────┴─────────────────┐
-                        │        OpenClaw + Claude           │
-                        │         (claude-cli, WSL)          │
-                        └─────────────────┬─────────────────┘
-                 ┌───────────────┬────────┴────────┬────────────────┐
-        Monitoreo autónomo       Text-to-SQL         Digest ejecutivo
-        autodiagnóstico → Jira   en Slack            brief programado
-             + alerta Slack      (anclado a semántica) → Slack
+                  Text-to-SQL en CLI                  Harness de evals
+              (anclado a la capa semántica)       (precisión de ejecución)
 ```
 
-1. **Modela** el warehouse con dbt — staging, marts, tests, freshness y lineage como ciudadanos de primera clase.
-2. **Gobierna** las métricas en una capa semántica para que el agente responda desde métricas *definidas*, no SQL adivinado.
-3. **Vigila** los pipelines de forma programada; cuando un check falla, el agente investiga, redacta un diagnóstico en lenguaje llano, abre un ticket en Jira y avisa en Slack.
-4. **Responde** preguntas de negocio en Slack vía text-to-SQL, anclado a la capa semántica y cercado por los guardrails de SQL.
-5. **Resume** el día/semana en un brief ejecutivo, de forma automática.
-6. **Mide todo** — la precisión del text-to-SQL vía un harness de evals, y tokens/costo/latencia vía OpenTelemetry.
+1. **Modela** el warehouse con dbt — staging, marts, tests y freshness como ciudadanos de primera clase.
+2. **Gobierna** las métricas en una capa semántica validada contra el SQL real de los modelos — no una lista de columnas mantenida a mano que se desactualiza sola.
+3. **Cerca con guardrails** cualquier SQL generado antes de que toque BigQuery: solo lectura, sin PII, sin SQL apilado, con límite de filas.
+4. **Responde** preguntas de negocio vía text-to-SQL, anclado a la capa semántica.
+5. **Mide** la precisión del text-to-SQL con un harness de evals que compara resultados, no texto.
+6. **Se configura por cliente** en un YAML — el código no cambia entre clientes con un stack similar.
 
 ---
 
 ## 📐 Arquitectura
 
 ![Arquitectura de Argus](./Img_Arq.png)
+<sub>*(reemplaza `Img_Arq.png` con tu propio diagrama antes de subir — no se generó una imagen real durante el build, el diagrama de texto de abajo es la fuente de verdad actual)*</sub>
 
 Tres capas, cada una con una sola responsabilidad:
 
-**Plataforma de datos (la fuente de verdad).** Generadores sintéticos emiten eventos multicanal (órdenes, tickets, interacciones) hacia BigQuery. dbt transforma `raw → staging → marts`, y publica `tests`, `source freshness` y `exposures` que apuntan a los dashboards de Power BI. Esta capa es determinista y totalmente testeable — el agente nunca inventa datos, lee tablas modeladas.
+**Plataforma de datos (la fuente de verdad).** Un generador sintético parametrizado por cliente (`clients/*.yml`) escribe eventos multicanal a BigQuery. dbt transforma `raw → staging → marts`, con tests de datos y freshness declarada. Esta capa es determinista y totalmente testeable — el agente nunca inventa datos, lee tablas modeladas.
 
-**Capa de agente (OpenClaw + Claude).** El gateway de OpenClaw corre Claude vía `claude-cli` y expone tres capacidades. Alcanza el warehouse y las herramientas externas (Jira, Slack) a través de servidores MCP, lee métricas gobernadas de la capa semántica, y corre sus monitores en las tareas programadas de OpenClaw.
+**Capa de agente (Claude vía API de Anthropic).** `argus/ask.py` recibe una pregunta, la ancla a la capa semántica, genera SQL, lo valida con guardrails, lo ejecuta con una cuenta de servicio de solo lectura, y devuelve una narrativa.
 
-**Ingeniería transversal.** Los guardrails, un harness de evals que actúa como gate del CI/CD, y la observabilidad de costo/traces envuelven ambas capas. Esta es la parte que convierte un demo en un sistema.
+**Ingeniería transversal.** Guardrails, un harness de evals que actúa como gate de CI, y una capa de configuración por cliente envuelven ambas capas.
 
----
-
-## 🤖 La Capa de Agente
-
-### Capacidad 1 — Observabilidad Autónoma de Datos
-
-Corre de forma programada (cron de OpenClaw). Cada ciclo ejecuta la suite de calidad de datos y, ante una falla, el agente **investiga por su cuenta** — lanza queries de seguimiento para localizar la causa (¿qué fuente? ¿qué día? ¿qué segmento?), redacta un diagnóstico legible, abre un ticket en Jira y publica una alerta en Slack con el resumen y un enlace a la corrida.
-
-```
-Detectado:  breach de freshness en `mart_orders` — 0 filas cargadas para 2026-07-14
-Diagnóstico: `raw_orders_web` aterrizó por última vez a las 03:00; falta el batch de las 04:00.
-             El volumen del canal web es 0 vs. una mediana de 7 días de ~1,400.
-Acción:     Jira DATA-142 abierto (P2) · Slack #data-alerts notificado
-```
-
-Checks implementados: freshness, anomalías de volumen de filas, drift de esquema, picos de tasa de nulos, y detección de anomalías en KPIs (estadística + basada en modelo, reutilizando el tooling de anomalías de trabajo previo).
-
-### Capacidad 2 — Analítica Conversacional (Text-to-SQL en Slack)
-
-Cualquiera hace una pregunta en lenguaje natural; Argus genera el SQL, lo ejecuta y devuelve un gráfico más un insight escrito. Clave: la generación está **anclada a la capa semántica** — al agente se le entregan las definiciones gobernadas de métricas y dimensiones, así compone a partir de métricas conocidas en vez de alucinar joins.
-
-```
-@argus ¿por qué bajaron las órdenes en MX la semana pasada?
-→ Las órdenes de MX cayeron 12.3% WoW (18,204 → 15,960). La caída se concentra
-  en el canal "web" (-31%), mientras app y POS quedaron planos. Causa upstream
-  probable: el hueco de ingesta web reportado en DATA-142. [gráfico adjunto]
-```
-
-Cada query generada pasa por los [guardrails de SQL](#️-guardrails--seguridad) antes de ejecutarse, y cada respuesta es evaluada por el [harness de evals](#-harness-de-evaluación).
-
-### Capacidad 3 — Digest Ejecutivo
-
-Un brief programado (diario/semanal) que convierte KPIs y cambios relevantes en narrativa orientada a decisiones, con enlaces a los dashboards de Power BI. Mismo motor que la Capacidad 2, corrido headless en un temporizador.
-
-### Cómo mapea a OpenClaw
-
-| Concern | Primitiva de OpenClaw |
-|---|---|
-| Motor de razonamiento | Claude vía `claude-cli` (`agents.defaults.cliBackends.claude-cli`) |
-| Monitores programados | Cron / tareas programadas |
-| Interfaz | Canal de Slack |
-| Acceso a warehouse / Jira / Slack | Servidores MCP |
-| Acciones reutilizables | Skills (run-quality-suite, text-to-sql, chart) |
-| Memoria de incidentes y baselines | Memoria del agente |
-| Traces y costo | Export de OpenTelemetry (nativo) |
+> **Estado:** las tres capacidades del diseño original están implementadas y verificadas con datos y credenciales reales — no solo en el papel. La orquestación también: el monitor y el digest corren solos vía OpenClaw (skills + cron), y los incidentes llegan de verdad a Slack y abren tickets en Jira.
 
 ---
 
 ## 🧱 Plataforma de Datos (dbt + BigQuery)
 
-El warehouse está modelado, no volcado. El layering sigue las convenciones de dbt:
+El warehouse está modelado, no volcado:
 
 ```
 models/
-├── staging/      un modelo por fuente, tipado/renombrado ligero, 1:1 con raw
-├── intermediate/ lógica de negocio reutilizable, no expuesta
-└── marts/        hechos y dims listos para análisis, documentados, testeados, expuestos
+├── staging/      un modelo por fuente (stg_orders_web/app/pos), 1:1 con raw
+├── intermediate/ union de los 3 canales, ephemeral (no crea tabla física)
+└── marts/        mart_orders — una fila por orden, documentado, testeado
 ```
 
-La calidad de datos vive **en los modelos**, versionada y con gate en CI — no en un script imperativo:
+Todo vive en el dataset `argus_analytics`, sin importar la capa — hay un macro (`macros/generate_schema_name.sql`) que lo fuerza así, porque el comportamiento por defecto de dbt (`+schema: staging` → dataset nuevo `analytics_staging`) habría roto el modelo de permisos: la cuenta de solo lectura del agente solo tiene acceso a `argus_analytics`, no a datasets que dbt pudiera inventar.
 
 ```yaml
-# models/marts/_marts.yml
-models:
-  - name: mart_orders
-    description: "Una fila por orden, enriquecida con canal y campos de SLA."
-    columns:
-      - name: order_id
-        tests: [unique, not_null]
-      - name: channel
-        tests:
-          - accepted_values:
-              values: ['web', 'app', 'pos', 'email', 'chat', 'social']
-      - name: revenue
-        tests:
-          - dbt_utils.accepted_range: { min_value: 0 }
-
+# models/staging/_staging.yml
 sources:
   - name: raw
     freshness:
       warn_after:  { count: 6,  period: hour }
       error_after: { count: 12, period: hour }
+    loaded_at_field: _ingested_at
     tables:
       - name: raw_orders_web
-        loaded_at_field: _ingested_at
+      - name: raw_orders_app
+      - name: raw_orders_pos
 ```
 
-`dbt build` corre modelos **y** tests en orden de dependencias; `dbt source freshness` alimenta el monitor de frescura; los `exposures` conectan el DAG con los reportes de Power BI para que el lineage sea de punta a punta.
+`dbt build` corre modelos y tests en orden de dependencias. Tests reales, no de relleno: `revenue >= 0`, `ingestion_lag_minutes >= 0`, `order_id` único, `channel`/`status` acotados a valores válidos.
 
 ---
 
 ## 🧮 Capa Semántica
 
-Las métricas se definen una sola vez, en control de versiones, y el agente compone a partir de ellas — esto es lo que evita que el text-to-SQL alucine. Las definiciones se le exponen al agente como su contexto de anclaje.
+`semantic/metrics.yml` define `orders`, `revenue` y `cancellation_rate` — una sola vez. El agente recibe estas definiciones como contexto de anclaje y compone SQL a partir de métricas conocidas, no de aritmética de columnas inventada.
 
 ```yaml
-# semantic/metrics.yml
 metrics:
-  - name: orders
-    label: "Órdenes"
-    calculation: "count(order_id)"
-    grain: [date, channel, country]
-  - name: revenue
-    label: "Ingresos"
-    calculation: "sum(revenue)"
-    grain: [date, channel, country]
   - name: cancellation_rate
-    label: "Tasa de cancelación"
     calculation: "countif(status = 'cancelled') / count(order_id)"
-    grain: [date, channel, country]
+    table: "mart_orders"
+    grain: ["order_date", "channel", "country"]
 ```
 
-Cuando un usuario hace una pregunta, Argus recibe estas definiciones y las dimensiones disponibles, y genera SQL que referencia solo métricas gobernadas — no aritmética arbitraria de columnas.
-
----
-
-## 🧪 Harness de Evaluación
-
-Un feature de LLM que no puedes medir es un pasivo. Argus incluye una suite de evals de text-to-SQL evaluada por **precisión de ejecución** (¿coinciden los result sets?) — no por coincidencia de strings del SQL, que penalizaría reescrituras válidas.
-
-```yaml
-# evals/cases.yml
-- id: mx_orders_wow
-  question: "¿Cuántas órdenes en México la semana pasada vs la semana previa?"
-  expected_sql_result:
-    reference: "sql/references/mx_orders_wow.sql"   # query de referencia confiable
-  assert:
-    - type: result_set_equals    # corre el SQL generado, compara filas contra la referencia
-    - type: row_count_gt: 0
-- id: cancellation_by_channel
-  question: "¿Qué canal tuvo la mayor tasa de cancelación en junio?"
-  expected_answer_contains: ["web"]
-  assert:
-    - type: valid_sql            # parsea + es un único SELECT
-    - type: result_set_equals
-```
-
-El runner ejecuta cada query generada contra un warehouse de fixtures semilla, compara el result set contra la referencia confiable, y reporta una **precisión** por suite más un desglose de fallas (join malo, filtro incorrecto, columna alucinada). Esta suite es un **gate obligatorio de CI** (abajo).
-
-> **Precisión actual de evals:** `_TBD — se llena tras la primera corrida de evals_` · Target: **≥ 90%** de precisión de ejecución en la suite semilla.
+**La validación no es cosmética.** `argus/semantic.py` parsea el SQL *real* de `mart_orders.sql` con `sqlglot` y confirma que cada métrica y cada dimensión de `grain` referencian columnas que existen de verdad — no una lista de columnas mantenida a mano que se desactualiza sola. La primera versión de este validador tenía un bug real: leía el `select * from final` final del modelo y se quedaba con el `*` literal en vez de resolver las columnas del CTE `final`. Se detectó rompiendo el mart a propósito antes de entregar el código — ver [Decisiones de Diseño](#-decisiones-de-diseño--tradeoffs).
 
 ---
 
 ## 🛡️ Guardrails & Seguridad
 
-El agente habla con el warehouse a través de una cuenta de servicio **solo lectura**, y cada query generada se parsea y valida *antes* de ejecutarse:
+El agente habla con BigQuery a través de una cuenta de servicio **de solo lectura** (`sa-agent`), separada de la que carga datos (`sa-loader`) desde la Fase 0. Cada query generada se valida *antes* de ejecutarse:
 
 ```python
-# guardrails/sql.py  — rechaza cualquier cosa que no sea un SELECT acotado
-import sqlglot
-from sqlglot import exp
+# argus/guardrails/sql.py
+BLOCKED_STATEMENT_TYPES = (exp.Insert, exp.Update, exp.Delete, exp.Drop, exp.Create, exp.Alter, exp.Merge)
 
-BLOCKED = (exp.Insert, exp.Update, exp.Delete, exp.Drop, exp.Create, exp.Alter, exp.Merge)
-PII_COLUMNS = {"email", "phone", "full_name", "customer_name"}
-
-def validate(sql: str, max_rows: int = 10_000) -> str:
-    tree = sqlglot.parse_one(sql, read="bigquery")
-    if any(isinstance(n, BLOCKED) for n in tree.walk()):
-        raise ValueError("Solo se permiten sentencias SELECT de solo lectura.")
-    if tree.find(exp.Star):
-        raise ValueError("SELECT * no está permitido — nombra tus columnas.")
-    if any(c.name.lower() in PII_COLUMNS for c in tree.find_all(exp.Column)):
-        raise ValueError("La query toca columnas con PII.")
-    if not tree.args.get("limit"):
-        tree = tree.limit(max_rows)               # fuerza un límite
-    return tree.sql(dialect="bigquery")
+def validate(sql: str, max_rows: int = 10_000, ...) -> str:
+    statements = [s for s in sqlglot.parse(sql, read="bigquery") if s is not None]
+    if len(statements) > 1:
+        raise GuardrailViolation("SQL apilado no permitido.")   # ver nota abajo
+    ...
 ```
 
 Defensa en profundidad:
 
-- **IAM de solo lectura** — la cuenta de servicio del agente tiene `roles/bigquery.dataViewer` + `jobUser`, nada que pueda escribir.
-- **Cap de bytes facturados** — cada job fija `maximum_bytes_billed` para que una query mala no pueda escanear (ni facturar) todo el warehouse.
-- **Redacción de PII** — la config de redacción de OpenClaw enmascara campos sensibles en logs, transcripts y payloads de herramientas.
-- **Postura anti prompt-injection** — el texto no confiable (cuerpos de tickets, comentarios) se trata como dato, nunca como instrucciones para el agente.
+- **IAM de solo lectura** — el control primario. `sa-agent` no *puede* escribir, sin importar qué SQL genere.
+- **Solo `SELECT`, sin `SELECT *`** — columnas nombradas explícitamente.
+- **Rechazo de SQL apilado** — `sqlglot.parse_one()` descarta en silencio cualquier sentencia después de un `;`; un ataque tipo `SELECT ...; DROP TABLE ...;` se vería "limpio" si solo se mirara la primera. Este proyecto usa `sqlglot.parse()` (plural) y exige exactamente una sentencia. Encontrado probando casos adversarios antes de escribir los tests, no después de un incidente.
+- **Columnas PII bloqueadas** — lista explícita, inglés + español, coincidencia exacta sobre nombre normalizado (no heurística difusa: en seguridad, predecible le gana a "inteligente").
+- **`LIMIT` forzado y acotado** — un `LIMIT` ausente se agrega; uno que excede el máximo se recorta. Ninguno de los dos puede saltarse el cap de filas.
+- **Cap de bytes facturados** — `maximum_bytes_billed` a nivel de job de BigQuery; una query mala no puede escanear (ni facturar) el warehouse completo.
 
 ---
 
-## 📈 Observabilidad & Costo
+## 🤖 Text-to-SQL
 
-El agente está instrumentado como un servicio de producción, no como una caja negra:
+```bash
+$ python -m argus.ask "¿cuántas órdenes hubo en total por canal?" --show-sql
 
-- **Tracing** — el export de OpenTelemetry (nativo en OpenClaw) envía spans por cada corrida del agente: prompt, tool calls, SQL ejecutado, latencia.
-- **Contabilidad de tokens y costo** — cada corrida registra tokens de entrada/salida y costo estimado; un reporte acumulado señala patrones de preguntas caras.
-- **Historial de corridas** — cada monitor y pregunta se persiste con su resultado, para que incidentes y respuestas sean auditables después.
+SQL generado:
+SELECT channel, COUNT(order_id) AS orders
+FROM `argus-data-agent.argus_analytics.mart_orders`
+GROUP BY channel
 
-> **Costo por pregunta respondida (p50):** `_TBD — medido tras las primeras corridas_`
+channel  orders
+    pos   39503
+    app   87303
+    web  131325
+
+El canal web concentra la mayor parte de las órdenes con 131,325 (~51% del
+total), seguido de app con 87,303 (34%) y pos con 39,503 (15%)...
+```
+
+Flujo (`argus/ask.py`): pregunta → `generate_sql()` (Claude + contexto semántico) → `validate()` (guardrails) → `run_query()` (BigQuery, cuenta de solo lectura) → `generate_narrative()` (Claude, español). Construido primero como CLI a propósito — cualquier transporte futuro (Slack, etc.) llamaría a estas mismas funciones.
+
+---
+
+## 🚨 Monitoreo Autónomo (Capacidad 1)
+
+Un monitor que corre checks de calidad sobre `mart_pipeline_health` (volumen, frescura, tasa de nulos — z-score contra un baseline de 7 días, no umbrales fijos adivinados) y, cuando algo falla, le pide a Claude un diagnóstico en lenguaje llano:
+
+```
+======================================================================
+[ERROR] freshness — canal 'web'
+======================================================================
+'web' no recibe datos hace 22.9h (umbral error: 12h)
+
+Detectado:  El canal 'web' no recibe datos desde hace 22.9h, superando el
+            umbral de error (12h).
+Diagnóstico: causa no determinada desde los datos disponibles; puede
+            tratarse de un corte en el pipeline de ingesta, un fallo en
+            la fuente origen, o un problema de scheduling del job.
+Acción:     Revisar el estado del job/pipeline de ingesta (logs,
+            orquestador) y confirmar si la fuente origen está emitiendo.
+======================================================================
+```
+
+Nótese lo que el diagnóstico **no** hace: no inventa una causa específica que los datos no sustentan. El prompt lo instruye explícitamente a decir "causa no determinada" en vez de adivinar — verificado con datos reales, no solo prometido en el prompt.
+
+**Notificación desacoplada a propósito.** `argus/notifiers.py` define un `Protocol` (`ConsoleNotifier` hoy); Jira/Slack implementarían la misma interfaz sin tocar la lógica de detección o diagnóstico. Ver [Decisiones de Diseño](#-decisiones-de-diseño--tradeoffs) para por qué `mart_pipeline_health` existe en vez de darle a `sa-agent` acceso a `argus_raw`.
+
+```bash
+python -m argus.monitors.run
+```
+
+---
+
+## 📊 Digest Ejecutivo (Capacidad 3)
+
+Un brief periódico que calcula las métricas gobernadas para la semana más reciente vs. la anterior — anclado a la **fecha más reciente que existe en los datos**, no al calendario real (los datos son un snapshot generado una vez, no un pipeline vivo; anclar a "hoy" produciría comparaciones contra semanas vacías).
+
+Diferencia de arquitectura con la Capacidad 2: aquí el SQL sale directo de `calculation` en la capa semántica — determinista, sin pasar por un LLM. Claude solo escribe la narrativa a partir de números ya calculados, nunca decide qué calcular; un digest programado necesita el mismo número cada vez que corre sobre los mismos datos.
+
+```
+📊 Digest ejecutivo — semana terminando 2026-07-15
+
+- Órdenes: 20046.00 (semana previa: 19984.00, cambio: +0.3%)
+- Ingresos: 902193.82 (semana previa: 899061.01, cambio: +0.3%)
+- Tasa de cancelación: 0.08 (semana previa: 0.08, cambio: -3.7%)
+
+Las métricas principales se mantuvieron estables esta semana... no se
+observan variaciones significativas que requieran atención inmediata.
+```
+
+```bash
+python -m argus.digest
+```
+
+---
+
+## 🔌 Orquestación: OpenClaw + Slack + Jira (Fase 8)
+
+El monitor y el digest no se corren a mano — viven como **skills** de OpenClaw, programadas con **cron** (monitor cada 4h, digest los lunes 8am), y notifican de verdad:
+
+```
+→ Notificando a Slack (#data-quality-alerts)
+→ Abriendo tickets en Jira (SCRUM)
+```
+
+Resultado real: 3 tickets abiertos automáticamente (`SCRUM-88/89/90`), uno por canal, con el mismo diagnóstico que llegó a Slack — el diseño original ("abre un ticket en Jira y avisa en Slack") funcionando literal, no como aspiración.
+
+**Decisiones de arquitectura de esta fase:**
+
+- **`SlackNotifier` y `JiraNotifier` son Python puro, no un servidor MCP.** El plan original mencionaba MCP para Jira, pero para "publicar un mensaje" o "abrir un ticket" por incidente, una llamada REST directa (`chat.postMessage`, `POST /rest/api/2/issue`) es más simple y no depende de infraestructura adicional de OpenClaw. MCP tendría sentido si el *agente conversacional* necesitara crear tickets a pedido — un caso distinto al de un monitor automático.
+- **Jira API v2, no v3.** v3 exige que `description` venga en Atlassian Document Format (JSON anidado); v2 acepta texto plano, que es todo lo que este notifier necesita.
+- **`MultiNotifier` con éxito parcial.** Si Jira falla pero Slack funciona (o viceversa), no se lanza excepción — solo se advierte. Lanzar la excepción completa haría que el incidente nunca se marque como "notificado", y el canal que sí funcionó recibiría el mismo mensaje duplicado en el siguiente cron.
+- **Deduplicación de incidentes (`argus/monitors/state.py`).** Sin esto, el cron de 4h reenviaría la misma alerta de freshness indefinidamente mientras los datos sigan congelados. Un incidente no se repite dentro de 24h a menos que empeore (`warn` → `error`).
+- **Se encontró y corrigió un bug real de OpenClaw** durante esta fase: un bloqueo circular en el flujo de aprobación de permisos (`scope upgrade pending approval`), documentado en su repositorio. Se resolvió actualizando de `2026.6.11` a `2026.7.1`.
+
+---
+
+## 🧪 Harness de Evaluación
+
+Evaluado por **precisión de ejecución** (¿coinciden los result sets?), no por coincidencia de texto de SQL — dos queries distintas pueden ser igualmente correctas.
+
+```yaml
+# argus/evals/cases.yml
+- id: cancellation_rate_overall
+  question: "¿Cuál es la tasa de cancelación general, como proporción?"
+  reference_sql: "references/cancellation_rate_overall.sql"
+```
+
+Las 6 queries de referencia semilla se verificaron dos veces antes de confiar en ellas: sintaxis con `sqlglot`, y lógica recalculando los mismos agregados con `pandas` directo desde el generador determinista (mismo seed que los datos reales), de forma independiente a BigQuery.
+
+> **Precisión de evals (corrida real, 16 jul 2026):** **6/6 (100%)** sobre la suite semilla.
+> Nota honesta: `n=6` es una muestra pequeña — suficiente para probar que el mecanismo de comparación funciona, no una garantía estadística. Ampliar la cobertura es trabajo de roadmap, no un hueco oculto.
+
+El runner clasifica cada falla por tipo (`result_mismatch`, `guardrail_rejected`, `invalid_sql`, `generation_error`, `reference_query_failed`) para que un fallo diga *por qué*, no solo *que* falló. Gate obligatorio de CI (`--min-accuracy 0.90`).
+
+> **Costo real medido (instrumentado en Fase 10, `argus/observability.py`):** **~$0.0034 por pregunta** de `ask` (2 llamadas a Claude: generar SQL + narrativa) y **~$0.0030 por corrida** de `digest` (1 sola llamada — el SQL sale directo de la capa semántica, sin pasar por Claude, confirmado por el propio conteo de llamadas). Sonnet 5 cuesta $2/$10 por millón de tokens de entrada/salida (precio introductorio vigente a jul-2026). `python -m argus.observability` genera este reporte en cualquier momento, agregado por componente.
+
+---
+
+## 🏢 Configuración por Cliente
+
+Canales, países, mezclas y volúmenes del generador **no** están en el código — viven en `clients/<nombre>.yml`, validados con `pydantic` (los pesos de país/status deben sumar 1.0, o falla temprano con un mensaje claro).
+
+```yaml
+# clients/example.yml
+channels:
+  web: { base_volume: 1400, weekend_multiplier: 1.15 }
+  app: { base_volume: 900,  weekend_multiplier: 1.25 }
+  pos: { base_volume: 500,  weekend_multiplier: 0.6 }
+countries: { MX: 0.45, US: 0.30, CO: 0.15, ES: 0.10 }
+```
+
+Para un cliente nuevo con un stack similar: se escribe un YAML nuevo, el Python no se toca. Verificado generando datos completos para un cliente ficticio (`acme-corp`, canal `marketplace`, países BR/AR) sin editar una sola línea de código.
 
 ---
 
@@ -278,92 +297,69 @@ El agente está instrumentado como un servicio de producción, no como una caja 
 ### Prerrequisitos
 
 ```bash
-Python 3.11+
-Docker & Docker Compose
-Un proyecto de BigQuery (el tier sandbox sirve) + una llave de service-account solo lectura
-Gateway de OpenClaw corriendo con claude-cli configurado (ver docs/openclaw-setup.md)
-Power BI Desktop (opcional — para construir los dashboards .pbix)
+Python 3.12 (NO 3.14 -- protobuf/dbt no compilan ahí, ver nota abajo)
+Un proyecto de BigQuery + dos service accounts (sa-loader, sa-agent) -- ver docs/setup-gcp.md
+Una API key de Anthropic -- console.anthropic.com/settings/keys
 ```
+
+> **Nota de compatibilidad:** este proyecto se desarrolló y probó contra un entorno con Python 3.14 preinstalado, donde `protobuf` (dependencia de dbt y de google-cloud-bigquery) falla al compilar con `TypeError: Metaclasses with custom tp_new are not supported`. La solución fue crear el entorno virtual con Python 3.12 explícito (`python3.12 -m venv .venv`). Si `dbt --version` o `import google.protobuf` fallan con ese error, es esto.
 
 ### Setup
 
 ```bash
-# 1. Clonar
-git clone https://github.com/cesarrabago/argus-data-agent
-cd argus-data-agent
-
-# 2. Variables de entorno
-cp .env.example .env          # proyecto BigQuery, dataset, ruta de la SA key, tokens de Slack/Jira
-
-# 3. Infra local (warehouse de fixtures para evals + servicios de soporte)
-docker-compose up -d
-
-# 4. Dependencias de Python
+cp .env.example .env      # GCP_PROJECT_ID, rutas a llaves, ANTHROPIC_API_KEY
+mkdir -p ~/.dbt && cp profiles.example.yml ~/.dbt/profiles.yml
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+python -m scripts.bootstrap_bq       # crea datasets, verifica permisos IAM
 ```
 
-### Sembrar datos y construir el warehouse
+### Generar datos y construir el warehouse
 
 ```bash
-# Generar datos sintéticos multicanal → BigQuery raw
-python data/synthetic/generate_data.py --days 90
-
-# Construir modelos + correr todos los tests (esto es lo que corre CI)
-dbt build
-dbt source freshness
+python -m data.synthetic.generate_data --days 90     # ~258k filas sintéticas
+set -a && source .env && set +a                       # exporta env vars para dbt
+dbt deps && dbt build
 ```
 
-### Apuntar OpenClaw al agente
+### Usar el agente
 
 ```bash
-# Backend de Claude CLI (ruta absoluta para evitar problemas de PATH bajo systemd/WSL)
-openclaw config set agents.defaults.cliBackends \
-  '{"claude-cli":{"command":"/home/crabago/.local/bin/claude"}}' --strict-json --merge
-
-# Registrar los skills + servidores MCP de Argus, luego reiniciar el gateway
-openclaw config set skills.allow '["run-quality-suite","text-to-sql","chart"]' --strict-json --merge
-systemctl --user restart openclaw-gateway.service
-```
-
-### Correr las piezas
-
-```bash
-# Ciclo de monitoreo autónomo (también corre en el cron de OpenClaw)
-python -m argus.monitors.run
-
-# Text-to-SQL: preguntar desde la CLI (replica lo que llama el canal de Slack)
-python -m argus.ask "¿por qué bajaron las órdenes en MX la semana pasada?"
-
-# Suite de evaluación
-python -m argus.evals.run          # imprime la precisión de ejecución por suite
+python -m argus.ask "¿qué canal generó más ingresos?" --show-sql
+python -m argus.evals.run                              # harness completo
 ```
 
 ---
 
 ## 🩺 Decisiones de Diseño & Tradeoffs
 
-*Lo senior no es la lista de features — es por qué cada pieza está construida como está.*
+*Lo senior no es la lista de features — es por qué cada pieza está construida como está, y qué se rompió en el camino.*
 
-- **`claude-cli` por ruta absoluta, no por resolución de PATH.** OpenClaw spawnea `claude` desde un servicio de usuario systemd cuyo entorno está recortado. Depender del `PATH` es frágil (y, en WSL, activamente peligroso — un `claude.exe` de Windows puede colarse vía `appendWindowsPath` y fallar al ejecutarse bajo systemd). Argus fija el backend a la ruta absoluta del binario nativo de Linux, eliminando el PATH de la superficie de falla por completo.
+- **`generate_schema_name` sobreescrito para forzar un solo dataset.** El comportamiento por defecto de dbt con `+schema: staging` crea datasets nuevos (`argus_analytics_staging`). El permiso de lectura de `sa-agent` (Fase 0) está scopeado a `argus_analytics` únicamente — sin el override, dbt habría creado infraestructura fuera de ese permiso sin que nadie lo notara hasta que el agente intentara leer ahí.
 
-- **Capa semántica en vez de "que el LLM escriba SQL libremente".** El text-to-SQL sin anclaje se ve hermoso en demo y falla en producción — inventa joins y aritmética de columnas. Entregarle al modelo *definiciones gobernadas de métricas* cambia un poco de flexibilidad por corrección y confianza. El harness de evals existe para probar que ese tradeoff valió la pena, no para asumirlo.
+- **Validación de la capa semántica contra el SQL real, con un bug real encontrado en el camino.** La primera versión de `_output_columns()` leía el `select * from final` de cierre de cada modelo y se quedaba con el `*` literal — resultado: **todo pasaba, incluso lo que no debía**, el peor tipo de bug en un validador. Se encontró corriendo la suite antes de entregar, se arregló para resolver la cadena de CTEs, y se confirmó rompiendo el mart a propósito (un typo deliberado en `revenue`) para probar que el test de verdad lo atrapa.
 
-- **Precisión de ejecución, no coincidencia de string del SQL, como métrica de eval.** Dos queries distintas pueden ser igualmente correctas. Evaluar según si los *result sets* coinciden premia la corrección en vez de penalizar reescrituras válidas — y es la métrica que de verdad mapea a "¿el usuario recibió la respuesta correcta?".
+- **Guardrails que rechazan SQL apilado explícitamente.** `sqlglot.parse_one()` descarta en silencio todo después de un `;`. Confiar en eso habría dejado un hueco de seguridad real (`SELECT ...; DROP TABLE ...;` se vería limpio). Se encontró probando el caso adversario *antes* de escribir el resto del validador, no después.
 
-- **Solo lectura por construcción, no por política.** La capa de guardrails es real, pero el control primario es que el rol IAM del agente *no puede* escribir. La seguridad que depende de que el modelo se porte bien no es seguridad.
+- **`create_bqstorage_client=False` en el ejecutor de queries.** El camino "rápido" de BigQuery requiere `bigquery.readsessions.create` a nivel de *proyecto* — un permiso que no se puede acotar a un dataset como sí se hizo con `dataViewer`. Con `SQL_MAX_ROWS` topando el tamaño del resultado, la velocidad extra es irrelevante; mantener a `sa-agent` sin permisos de proyecto no lo es.
 
-- **Tests de dbt como gate de CI, no como reporte nocturno.** Atrapar dato malo después de que se envió es respuesta a incidentes; atraparlo en el PR es ingeniería. Los tests corren en cada cambio y bloquean el merge.
+- **Precisión de ejecución, no coincidencia de string, como métrica de eval.** Dos queries distintas pueden ser igualmente correctas. Se sigue evaluando si los *result sets* coinciden, normalizando orden de filas/columnas antes de comparar.
 
-- **"No ayudó" es un resultado válido y documentado.** Donde una feature candidata o un ajuste de modelo no muestra mejora medible, se queda fuera — y el resultado negativo se escribe. (Principio heredado de trabajo previo, donde adiciones de features que sonaban razonables movieron una métrica menos que el ruido.)
+- **Configuración por cliente desde la Fase 1, no como refactor tardío.** Canales/países/volúmenes en YAML en vez de constantes en Python — la pregunta de qué tan fácil sería replicar este proyecto para un cliente real llevó a esta decisión antes de que hiciera falta, no después.
+
+- **Solo lectura por construcción, no por política.** La capa de guardrails es real, pero el control primario es que el rol IAM del agente *no puede* escribir.
 
 ---
 
 ## ⚠️ Limitaciones Conocidas
 
-- Corre completamente sobre **datos sintéticos**; las distribuciones son plausibles pero no reales, así que los baselines de anomalías son ilustrativos.
-- El **tier sandbox de BigQuery** tiene límites de cuota/retención; un despliegue productivo usaría un proyecto estándar.
-- La suite de evals cubre el set de preguntas semilla — ampliar la cobertura es continuo, y la precisión reportada es tan representativa como ese set.
-- Las métricas marcadas `_TBD_` se llenan de corridas reales; los targets se declaran por separado y **no** son resultados medidos.
+- Corre sobre **datos sintéticos**; las distribuciones son plausibles pero no reales.
+- El **tier sandbox de BigQuery** tiene límite de retención de 60 días y restricciones de DML (que este proyecto no necesita — ver `docs/setup-gcp.md`).
+- Solo se generan 3 canales (web/app/pos), no los 6 originalmente contemplados (email/chat/social quedan fuera de alcance de este PoC).
+- El CI corre `dbt build` + evals contra el **mismo** dataset `argus_analytics` de desarrollo local, no uno aislado — ver la nota en `.github/workflows/ci.yml`.
+- El diagnóstico de incidentes es una sola llamada a Claude con los números del finding, no una ronda de queries de seguimiento adicionales — suficiente para el PoC, no la versión más elaborada del "agente investiga por su cuenta".
+- Deduplicación de incidentes basada en un archivo JSON local (`state/monitor_state.json`), no en una base de datos — suficiente para un solo proceso/máquina, no pensado para múltiples workers en paralelo.
+- Observabilidad de costo vía JSONL local (`state/usage_log.jsonl`), no OpenTelemetry — mismo criterio de alcance: suficiente para un proceso/máquina, no para un sistema distribuido.
 
 ---
 
@@ -371,46 +367,32 @@ python -m argus.evals.run          # imprime la precisión de ejecución por sui
 
 | Capa | Tecnología | Propósito |
 |---|---|---|
-| Lenguaje | Python 3.11 | Generadores, glue del agente, evals, guardrails |
-| Warehouse | Google BigQuery | Warehouse en la nube (amigable con sandbox) |
-| Transformación | dbt (core) | Modelos, tests, freshness, lineage, exposures |
-| Capa semántica | dbt metrics / registro YAML | Definiciones gobernadas de métricas para anclaje |
-| Gateway de agente | OpenClaw | Scheduling, canales, MCP, memoria |
-| Razonamiento | Anthropic Claude (`claude-cli`) | Diagnóstico, text-to-SQL, narrativa |
-| Interfaz | Slack | Hacer preguntas, recibir alertas y digests |
-| Ticketing | Jira (MCP) | Tickets de incidente abiertos automáticamente |
+| Lenguaje | Python 3.12 | Generadores, agente, evals, guardrails |
+| Warehouse | Google BigQuery | Warehouse en la nube (sandbox) |
+| Transformación | dbt-core 1.8 | Modelos, tests, freshness, lineage |
+| Razonamiento | Claude Sonnet 5 (API de Anthropic) | Text-to-SQL, narrativa, diagnóstico |
+| Orquestación | OpenClaw 2026.7 | Skills + cron para correr el monitor/digest solos |
+| Notificaciones | Slack (Web API) | Alertas de incidentes en tiempo real |
+| Ticketing | Jira (REST API v2) | Tickets de incidente abiertos automáticamente |
+| Validación de config | pydantic v2 | Config por cliente, capa semántica |
 | Guardrails de SQL | sqlglot | Parsea/valida cada query generada |
-| Detección de anomalías | scikit-learn / XGBoost | Monitores de KPI estadísticos + basados en modelo |
-| BI | Power BI Desktop | Dashboards ejecutivos (exposures) |
-| Contenedores | Docker Compose | Entorno local reproducible |
-| CI/CD | GitHub Actions | dbt build + gate de evals + lint en cada PR |
-| Observabilidad | OpenTelemetry | Traces, contabilidad de tokens/costo |
-| Lint/format | ruff + sqlfluff | Gates de estilo de Python + SQL |
+| CI/CD | GitHub Actions | Lint + dbt build + gate de evals en cada PR |
 
 ---
 
 ## 🔁 CI/CD
 
-Cada pull request tiene que pasar, o no se mergea:
+Dos jobs: `lint` (ruff + pytest, sin red real) y `build_and_eval` (dbt build + harness de evals, gate en `--min-accuracy 0.90`), que corre solo si `lint` pasa.
 
 ```yaml
-# .github/workflows/ci.yml
-name: ci
-on: [pull_request]
-jobs:
-  build-and-eval:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: pip install -r requirements.txt
-      - run: ruff check . && sqlfluff lint models/
-      - run: dbt build --target ci          # modelos + todos los tests de datos
-      - run: python -m argus.evals.run --min-accuracy 0.90   # gate en precisión de text-to-SQL
+build_and_eval:
+  needs: lint
+  steps:
+    - run: dbt build
+    - run: python -m argus.evals.run --min-accuracy 0.90
 ```
 
-El paso de evals **falla el build** si la precisión del text-to-SQL cae por debajo del umbral — el feature de IA se trata con el mismo rigor que los modelos de datos.
+Requiere 3 GitHub Secrets: `SA_LOADER_KEY_JSON`, `SA_AGENT_KEY_JSON`, `ANTHROPIC_API_KEY`.
 
 ---
 
@@ -419,46 +401,47 @@ El paso de evals **falla el build** si la precisión del text-to-SQL cae por deb
 ```
 argus-data-agent/
 │
-├── 📄 README.md
-├── 📄 Img_Arq.png                    ← diagrama de arquitectura referenciado arriba
-├── 📄 docker-compose.yaml
-├── 📄 requirements.txt
-├── 📄 .env.example
-├── 📄 dbt_project.yml
+├── 📄 .env.example · docker-compose.yaml · Dockerfile · Makefile
+├── 📄 dbt_project.yml · packages.yml · profiles.example.yml
 │
 ├── 📂 docs/
-│   └── openclaw-setup.md             ← setup del backend claude-cli + MCP + cron
+│   └── setup-gcp.md                  ← dos service accounts, permisos IAM
 │
-├── 📂 data/
-│   └── synthetic/
-│       └── generate_data.py          ← eventos sintéticos multicanal → BigQuery raw
+├── 📂 data/synthetic/
+│   └── generate_data.py              ← generador multicanal, --inject-fault
 │
-├── 📂 models/                        ← dbt
-│   ├── staging/
-│   ├── intermediate/
-│   └── marts/
-│       ├── mart_orders.sql
-│       └── _marts.yml                ← tests, freshness, exposures
+├── 📂 clients/
+│   └── example.yml                   ← config por cliente (canales, países, mezclas)
+│
+├── 📂 models/                        ← dbt: staging → intermediate → marts
+├── 📂 macros/
+│   └── generate_schema_name.sql      ← fuerza un solo dataset
 │
 ├── 📂 semantic/
-│   └── metrics.yml                   ← definiciones gobernadas de métricas (anclaje del agente)
+│   └── metrics.yml                   ← métricas gobernadas
 │
-├── 📂 argus/                         ← la aplicación del agente
-│   ├── ask.py                        ← entry point de text-to-SQL
+├── 📂 argus/
+│   ├── config.py · clients.py        ← settings, credenciales por rol
+│   ├── client_config.py              ← loader/validador de clients/*.yml
+│   ├── semantic.py                   ← loader/validador de metrics.yml
+│   ├── warehouse.py                  ← único punto de acceso a BigQuery
+│   ├── ask.py                        ← text-to-SQL (CLI, Capacidad 2)
+│   ├── digest.py                     ← digest ejecutivo (Capacidad 3)
+│   ├── notifiers.py                  ← Notifier Protocol: Console/Slack/Jira/Multi
+│   ├── observability.py              ← tokens/costo por llamada (Fase 10)
+│   ├── guardrails/sql.py             ← validador de SQL
 │   ├── monitors/
-│   │   └── run.py                    ← suite de calidad + autodiagnóstico → Jira/Slack
-│   ├── guardrails/
-│   │   └── sql.py                    ← validación con sqlglot (solo lectura, sin PII, acotado)
-│   ├── skills/                       ← skills de OpenClaw (run-quality-suite, text-to-sql, chart)
+│   │   ├── checks.py                 ← freshness/volumen/nulls (Capacidad 1)
+│   │   ├── state.py                  ← deduplicación de incidentes (cooldown 24h)
+│   │   └── run.py                    ← orquestador: checks → diagnóstico → notify
 │   └── evals/
-│       ├── cases.yml
-│       ├── references/               ← queries de referencia confiables
+│       ├── cases.yml · references/*.sql
 │       └── run.py                    ← scorer de precisión de ejecución
 │
-├── 📂 powerbi/                       ← dashboards .pbix (exposures)
+├── 📂 tests/                          ← 163 tests, sin llamadas reales a red
 │
 └── 📂 .github/workflows/
-    └── ci.yml                        ← dbt build + gate de evals + lint
+    └── ci.yml                        ← lint + dbt build + gate de evals
 ```
 
 ---
@@ -466,20 +449,22 @@ argus-data-agent/
 ## 🗺️ Roadmap
 
 ```
-Semana 1  ▸  Generadores sintéticos → BigQuery raw
-          ▸  dbt: staging → marts + tests + freshness + exposures
-          ▸  Power BI conectado (flujo de datos de punta a punta funcionando)
+✅ Fase 0-1   ▸  Cimientos, IAM, generador sintético + config por cliente
+✅ Fase 2-3   ▸  Modelos dbt + capa semántica validada
+✅ Fase 4-5   ▸  Guardrails + text-to-SQL funcionando con datos reales
+✅ Fase 6     ▸  Harness de evals: 6/6 (100%) + gate de CI activo
+✅ Fase 7     ▸  Monitoreo autónomo (Capacidad 1): freshness/volumen/nulls + diagnóstico
+✅ Fase 9     ▸  Digest ejecutivo (Capacidad 3)
+✅ Fase 8     ▸  OpenClaw: skills + cron + SlackNotifier + JiraNotifier, todo real
+✅ Fase 10    ▸  Observabilidad de costo: $0.0034/pregunta medido, no estimado
 
-Semana 2  ▸  Agente OpenClaw: monitoreo autónomo → Jira + Slack
-          ▸  Text-to-SQL en Slack, anclado a la capa semántica
-          ▸  Guardrails + harness de evals + gate de GitHub Actions
-          ▸  Traces de OpenTelemetry + contabilidad de tokens/costo
-          ▸  README, diagrama de arquitectura, video demo de 90 segundos
+Próximo   ▸  Notifiers adicionales (Teams, PagerDuty) sobre el mismo Protocol
 
-Futuro    ▸  Ampliar cobertura de evals; tracking de regresión de la precisión en el tiempo
-          ▸  Soporte multi-warehouse (paridad de fixtures Snowflake / DuckDB)
-          ▸  Memoria de hilo en Slack para que las preguntas de seguimiento tengan contexto
-          ▸  Sugerencias de auto-remediación adjuntas a cada ticket de incidente
+Futuro    ▸  Ampliar cobertura de evals más allá de 6 casos semilla
+          ▸  Aislar CI en su propio dataset (argus_ci) con fixtures propias
+          ▸  Investigación multi-paso en el monitor (follow-up queries, no solo 1 diagnóstico)
+          ▸  Deduplicación de incidentes en una tabla en vez de un JSON local
+          ▸  Soporte multi-warehouse (Snowflake/DuckDB)
 ```
 
 ---
