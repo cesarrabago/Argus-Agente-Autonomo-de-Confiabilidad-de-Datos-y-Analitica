@@ -442,20 +442,6 @@ python -m argus.observability                             # reporte de costo rea
 
 ---
 
-## ⚠️ Limitaciones Conocidas
-
-- Corre sobre **datos sintéticos**; las distribuciones son plausibles pero no reales.
-- El **tier sandbox de BigQuery** tiene límite de retención de 60 días y restricciones de DML (que este proyecto no necesita — ver `docs/setup-gcp.md`).
-- Solo se generan 3 canales (web/app/pos), no los 6 originalmente contemplados (email/chat/social quedan fuera de alcance de este PoC).
-- El CI corre `dbt build` + evals contra el **mismo** dataset `argus_analytics` de desarrollo local, no uno aislado — ver la nota en `.github/workflows/ci.yml`.
-- El diagnóstico de `freshness` sigue siendo una sola llamada a Claude — la investigación multi-paso (`argus/monitors/investigate.py`) solo está definida para `volume_drop` y `null_spike` (desglose por país). Freshness no tiene un desglose útil que investigar: si un canal no recibe datos en absoluto, no hay filas que desglosar.
-- Deduplicación de incidentes basada en un archivo JSON local (`state/monitor_state.json`), no en una base de datos — suficiente para un solo proceso/máquina, no pensado para múltiples workers en paralelo.
-- Observabilidad de costo vía JSONL local (`state/usage_log.jsonl`), no OpenTelemetry — mismo criterio de alcance: suficiente para un proceso/máquina, no para un sistema distribuido.
-- El modo escenario soporta dos tipos de perturbación (escalar una métrica, o mover la tasa de cancelación a un objetivo) — no es un motor de simulación de negocio de propósito general.
-- La carga incremental diaria agrega datos sintéticos nuevos, no una fuente de datos real — mantiene el freshness genuinamente vivo, pero sigue siendo un PoC sobre datos generados, no un pipeline productivo.
-
----
-
 ## 📦 Tech Stack
 
 | Capa | Tecnología | Propósito |
