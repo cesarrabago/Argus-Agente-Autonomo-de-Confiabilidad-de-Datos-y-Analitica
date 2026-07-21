@@ -21,7 +21,7 @@
 
 <br>
 
-[🎯 Problema](#-el-problema) · [💡 Solución](#-la-solución) · [📐 Arquitectura](#-arquitectura) · [🧱 Plataforma de Datos](#-plataforma-de-datos-dbt--bigquery) · [🧮 Capa Semántica](#-capa-semántica) · [🛡️ Guardrails](#️-guardrails--seguridad) · [🤖 Text-to-SQL](#-text-to-sql) · [🚨 Monitoreo](#-monitoreo-autónomo-capacidad-1) · [📊 Digest](#-digest-ejecutivo-capacidad-3) · [🔌 OpenClaw](#-orquestación-openclaw--slack--jira-fase-8) · [🧪 Evals](#-harness-de-evaluación) · [🏢 Config por Cliente](#-configuración-por-cliente) · [🚀 Quick Start](#-quick-start) · [🩺 Decisiones de Diseño](#-decisiones-de-diseño--tradeoffs) · [📁 Estructura](#-estructura-del-proyecto)
+[🎯 Problema](#-el-problema) · [💡 Solución](#-la-solución) · [📐 Arquitectura](#-arquitectura) · [🧱 Plataforma de Datos](#-plataforma-de-datos-dbt--bigquery) · [🧮 Capa Semántica](#-capa-semántica) · [🛡️ Guardrails](#️-guardrails--seguridad) · [🤖 Text-to-SQL](#-text-to-sql) · [🚨 Monitoreo](#-monitoreo-autónomo-capacidad-1) · [📊 Digest](#-digest-ejecutivo-capacidad-3) · [🔮 Radar Predictivo](#-radar-predictivo-capacidad-4) · [🔌 OpenClaw](#-orquestación-openclaw--slack--jira) · [🧪 Evals](#-harness-de-evaluación) · [🏢 Config por Cliente](#-configuración-por-cliente) · [🚀 Quick Start](#-quick-start) · [🩺 Decisiones de Diseño](#-decisiones-de-diseño--tradeoffs) · [📁 Estructura](#-estructura-del-proyecto)
 
 </div>
 
@@ -79,7 +79,7 @@ Tres capas, cada una con una sola responsabilidad:
 
 **Ingeniería transversal.** Guardrails, un harness de evals que actúa como gate de CI, y una capa de configuración por cliente envuelven ambas capas.
 
-> **Estado:** las tres capacidades del diseño original están implementadas y verificadas con datos y credenciales reales — no solo en el papel. La orquestación también: el monitor y el digest corren solos vía OpenClaw (skills + cron), y los incidentes llegan de verdad a Slack y abren tickets en Jira.
+> **Estado:** las cuatro capacidades (las tres del diseño original, más el Radar Predictivo agregado después) están implementadas y verificadas con datos y credenciales reales — no solo en el papel. La orquestación también: cinco skills corren solas vía OpenClaw + cron, y los incidentes llegan de verdad a Slack y abren tickets en Jira.
 
 ---
 
@@ -177,6 +177,25 @@ total), seguido de app con 87,303 (34%) y pos con 39,503 (15%)...
 
 Flujo (`argus/ask.py`): pregunta → `generate_sql()` (Claude + contexto semántico) → `validate()` (guardrails) → `run_query()` (BigQuery, cuenta de solo lectura) → `generate_narrative()` (Claude, español). Construido primero como CLI a propósito — cualquier transporte futuro (Slack, etc.) llamaría a estas mismas funciones.
 
+### Modo escenario — "¿qué pasaría si...?" (`argus/scenario.py`)
+
+Extensión de la Capacidad 2. Claude nunca calcula el resultado — solo parsea la pregunta a una perturbación estructurada (validada contra la capa semántica) y narra un número ya calculado con aritmética determinista. Cuando el cálculo requiere un supuesto (ej. "las órdenes recuperadas generan el ingreso promedio actual"), ese supuesto se **imprime siempre**, nunca se esconde detrás de la cifra:
+
+```bash
+$ python -m argus.scenario "¿qué pasaría con los ingresos si la cancelación bajara a 6%?"
+
+Ingresos actual:     3,552,202.96
+Ingresos proyectado: 3,655,850.52 (+2.9%)
+Fórmula: tasa actual 8.7% -> objetivo 6.0% sobre 86405 órdenes = 2303 órdenes recuperadas
+Supuesto: cada orden recuperadas genera el ingreso promedio de una orden completada actual ($45.01)
+
+Si la tasa de cancelación bajara del 8.7% actual a 6.0%, se recuperarían
+alrededor de 2,303 órdenes que hoy se están cancelando... Es importante
+aclarar que este cálculo asume que cada orden recuperada generaría un
+ingreso igual al promedio actual — un supuesto razonable para estimar el
+impacto, pero no un dato medido directamente.
+```
+
 ---
 
 ## 🚨 Monitoreo Autónomo (Capacidad 1)
@@ -201,11 +220,17 @@ Acción:     Revisar el estado del job/pipeline de ingesta (logs,
 
 Nótese lo que el diagnóstico **no** hace: no inventa una causa específica que los datos no sustentan. El prompt lo instruye explícitamente a decir "causa no determinada" en vez de adivinar — verificado con datos reales, no solo prometido en el prompt.
 
-**Notificación desacoplada a propósito.** `argus/notifiers.py` define un `Protocol` (`ConsoleNotifier` hoy); Jira/Slack implementarían la misma interfaz sin tocar la lógica de detección o diagnóstico. Ver [Decisiones de Diseño](#-decisiones-de-diseño--tradeoffs) para por qué `mart_pipeline_health` existe en vez de darle a `sa-agent` acceso a `argus_raw`.
+**Notificación desacoplada a propósito.** `argus/notifiers.py` define un `Protocol` con cuatro implementaciones: `ConsoleNotifier`, `SlackNotifier`, `JiraNotifier`, y `MultiNotifier` (fan-out a varios a la vez — regla de éxito parcial: si al menos uno funciona, no se repite spam en el siguiente cron aunque el otro haya fallado). Ver [Decisiones de Diseño](#-decisiones-de-diseño--tradeoffs) para por qué `mart_pipeline_health` existe en vez de darle a `sa-agent` acceso a `argus_raw`.
+
+**Investigación multi-paso antes de diagnosticar (`argus/monitors/investigate.py`).** Para `volume_drop`, corre un desglose determinista por país (hoy vs. baseline de 7 días) antes de pedirle a Claude el diagnóstico — así, en vez de "causa no determinada" genérico, el modelo recibe un patrón real (`"concentrada en 1 de 4 países: MX"` o `"generalizada"`) del cual partir.
 
 ```bash
 python -m argus.monitors.run
 ```
+
+### Alerta de presupuesto — el monitor se vigila a sí mismo
+
+Un check más (`check_budget()`), que no toca BigQuery — lee el log local de costo (`argus/observability.py`, ver [Radar Predictivo](#-radar-predictivo-capacidad-4)) y compara el gasto de Claude de las últimas 24h contra un umbral (`warn` a $1, `error` a $5). Reutiliza el mismo `Finding`/`Notifier`/dedup que los demás checks — si el agente empieza a gastar de más, se entera por el mismo canal que cualquier otro incidente.
 
 ---
 
@@ -232,16 +257,67 @@ python -m argus.digest
 
 ---
 
-## 🔌 Orquestación: OpenClaw + Slack + Jira (Fase 8)
+## 🔮 Radar Predictivo (Capacidad 4)
 
-El monitor y el digest no se corren a mano — viven como **skills** de OpenClaw, programadas con **cron** (monitor cada 4h, digest los lunes 8am), y notifican de verdad:
+La cuarta capacidad, agregada después de que las primeras tres ya estaban verificadas con datos reales — cierra el arco narrativo del proyecto: Capacidad 1 responde *qué pasó*, Capacidad 3 *qué está pasando*, esto responde *qué va a pasar si nada cambia*, y el [modo escenario](#-text-to-sql) *qué pasaría si algo cambiara, a pedido*.
+
+**Mismo principio de todo el proyecto, aplicado de nuevo: Claude nunca calcula el número.**
+
+### Pronóstico determinista (`argus/forecast.py`)
+
+Ajusta tendencia + estacionalidad de día-de-semana **en una sola regresión conjunta** (no en dos pasos separados — ver la nota de bug abajo) sobre la serie histórica de cada métrica gobernada, y proyecta 7 días adelante. Sin librerías de ML nuevas — `numpy` puro, coherente con la decisión ya tomada en la Fase 7 de quedarse con detección estadística en vez de basada en modelo.
+
+```bash
+$ python -m argus.report   # el pronóstico alimenta el reporte diario
+
+⚠️ 1 señal de riesgo — Tasa de cancelación
+La tasa de cancelación está proyectada a cruzar el umbral crítico de
+0.12 en ~7 días (2026-07-26).
+```
+
+Verificado dos veces con datos reales: una vez con `cancellation_rate` estable (0 señales, correcto — no hay nada que reportar), y una vez inyectando la falla `kpi_anomaly` (spike real del 5x en un día), donde `at_risk` sí se disparó con el detalle correcto.
+
+### Investigación multi-paso (`argus/monitors/investigate.py`)
+
+Ver [Monitoreo Autónomo](#-monitoreo-autónomo-capacidad-1) — el desglose por país que enriquece el diagnóstico de `volume_drop` antes de que Claude lo vea.
+
+### Reporte diario (`argus/report.py`)
+
+Combina pronóstico + incidentes ya investigados en un HTML (`reports/report_<fecha>.html`) más una narrativa. **Degrada con gracia sin Claude** — probado explícitamente: sin `ANTHROPIC_API_KEY`, usa una plantilla determinista en vez de fallar por completo (mismo patrón que se extendió después a `digest.py` y `monitors/run.py`, ver [Decisiones de Diseño](#-decisiones-de-diseño--tradeoffs)).
+
+```bash
+python -m argus.report
+```
+
+---
+
+## 🔌 Orquestación: OpenClaw + Slack + Jira
+
+Nada se corre a mano — cinco **skills** de OpenClaw, programadas con **cron**, notifican de verdad:
+
+| Skill | Cron | Qué hace |
+|---|---|---|
+| `argus-ask` | (a pedido, vía chat) | Text-to-SQL conversacional (Capacidad 2) |
+| `argus-monitor` | cada 4h | Checks de calidad + diagnóstico (Capacidad 1) |
+| `argus-report` | diario, 7am | Radar predictivo (Capacidad 4) |
+| `argus-digest` | semanal, lunes 8am | Brief ejecutivo (Capacidad 3) |
+| `argus-incremental-load` | diario, 5am | Mantiene el freshness genuinamente vivo (ver abajo) |
 
 ```
 → Notificando a Slack (#data-quality-alerts)
 → Abriendo tickets en Jira (SCRUM)
+→ 3 incidente(s) detectado(s) y notificado(s).
 ```
 
-Resultado real: 3 tickets abiertos automáticamente (`SCRUM-88/89/90`), uno por canal, con el mismo diagnóstico que llegó a Slack — el diseño original ("abre un ticket en Jira y avisa en Slack") funcionando literal, no como aspiración.
+Resultado real: tickets abiertos automáticamente (`SCRUM-88/89/90` y sucesivos), con el mismo diagnóstico que llegó a Slack — el diseño original ("abre un ticket en Jira y avisa en Slack") funcionando literal, no como aspiración.
+
+### Carga incremental — el freshness deja de envejecer congelado
+
+Los datos del PoC son un snapshot generado una vez (`data.synthetic.generate_data`), no un pipeline vivo — así que el check de freshness envejecía sin límite mientras pasaban las horas reales. `data/synthetic/incremental_load.py` genera **un solo día** y lo **agrega** (`WRITE_APPEND`, no `WRITE_TRUNCATE`) a las tablas raw cada madrugada, para que el monitor vigile algo genuinamente vivo.
+
+```bash
+python -m data.synthetic.incremental_load          # agrega el día de "ayer"
+```
 
 **Decisiones de arquitectura de esta fase:**
 
@@ -249,6 +325,8 @@ Resultado real: 3 tickets abiertos automáticamente (`SCRUM-88/89/90`), uno por 
 - **Jira API v2, no v3.** v3 exige que `description` venga en Atlassian Document Format (JSON anidado); v2 acepta texto plano, que es todo lo que este notifier necesita.
 - **`MultiNotifier` con éxito parcial.** Si Jira falla pero Slack funciona (o viceversa), no se lanza excepción — solo se advierte. Lanzar la excepción completa haría que el incidente nunca se marque como "notificado", y el canal que sí funcionó recibiría el mismo mensaje duplicado en el siguiente cron.
 - **Deduplicación de incidentes (`argus/monitors/state.py`).** Sin esto, el cron de 4h reenviaría la misma alerta de freshness indefinidamente mientras los datos sigan congelados. Un incidente no se repite dentro de 24h a menos que empeore (`warn` → `error`).
+- **`generate_channel_orders` (historia completa) y `generate_single_day` (incremental) usan esquemas de seed deliberadamente distintos.** El primero resetea su generador aleatorio en cada llamada, a propósito, para que el bloque histórico completo sea siempre idéntico (clave para los evals). El segundo necesita justo lo contrario — que cada día calendario real produzca datos distintos al anterior — así que el seed incorpora la fecha real.
+- **Bug real encontrado: `hash()` nativo de Python está randomizado por proceso.** El generador usaba `hash(channel)` para sembrar su generador aleatorio — funciona igual dentro de una misma ejecución (por eso los tests originales no lo atraparon), pero da un valor *distinto en cada proceso de Python* (protección de seguridad desde la 3.3, activa por default). Esto rompía la promesa de "mismo seed = mismo resultado" entre corridas separadas del script — se encontró comparando `--dry-run` contra una carga real del mismo día, con conteos que no coincidían. Se corrigió con `zlib.crc32()` (estable entre procesos) y se agregó un test que invoca el CLI como dos procesos de Python completamente separados y compara la salida byte por byte — el único tipo de test que atrapa esta clase de bug.
 - **Se encontró y corrigió un bug real de OpenClaw** durante esta fase: un bloqueo circular en el flujo de aprobación de permisos (`scope upgrade pending approval`), documentado en su repositorio. Se resolvió actualizando de `2026.6.11` a `2026.7.1`.
 
 ---
@@ -326,7 +404,12 @@ dbt deps && dbt build
 
 ```bash
 python -m argus.ask "¿qué canal generó más ingresos?" --show-sql
-python -m argus.evals.run                              # harness completo
+python -m argus.scenario "¿qué pasaría con los ingresos si subieran 10%?"
+python -m argus.monitors.run                            # checks + diagnóstico + notificación
+python -m argus.report                                  # pronóstico + investigación (Capacidad 4)
+python -m argus.digest                                  # brief ejecutivo semanal
+python -m argus.evals.run                                # harness completo
+python -m argus.observability                             # reporte de costo real
 ```
 
 ---
@@ -349,6 +432,14 @@ python -m argus.evals.run                              # harness completo
 
 - **Solo lectura por construcción, no por política.** La capa de guardrails es real, pero el control primario es que el rol IAM del agente *no puede* escribir.
 
+- **Pronóstico con regresión conjunta, no en dos pasos.** La primera versión de `argus/forecast.py` ajustaba tendencia lineal y *después* promediaba residuales por día de la semana — se encontró probando con una serie sintética de estacionalidad **conocida** (fines de semana +50, sin tendencia real) que ese método en dos pasos generaba una pendiente falsa cuando la ventana de historia no tenía los fines de semana perfectamente centrados. Se corrigió con una sola regresión (tendencia + 7 niveles de día de semana simultáneos), verificado con la misma serie sintética dando `slope ≈ 0` exacto.
+
+- **El modo escenario nunca esconde sus supuestos.** Cuando un cálculo requiere una suposición no medida (ej. "las órdenes recuperadas generan el ingreso promedio actual"), esa suposición se imprime siempre junto al resultado, y Claude la repite explícitamente en su narrativa — un número proyectado nunca se presenta como si fuera un hecho medido.
+
+- **Degradación elegante consistente, pero no uniforme.** `report.py`, `digest.py` y `monitors/run.py` funcionan sin `ANTHROPIC_API_KEY` (plantilla determinista en vez de fallar). `ask.py` y `scenario.py` **sí** bloquean sin la llave, a propósito — estructuralmente no hay nada que degradar cuando la tarea central *es* traducir lenguaje natural a una estructura, no narrar un número ya calculado.
+
+- **Bug real de `hash()` randomizado entre procesos, encontrado por accidente productivo.** El generador de datos sembraba su generador aleatorio con `hash(channel)` — estable dentro de un proceso (por eso ningún test lo atrapó), pero distinto en cada ejecución del script (protección de seguridad de Python desde la 3.3). Se descubrió comparando la salida de `--dry-run` contra una carga real del mismo día: los conteos no coincidían, y deberían haber sido idénticos. Corregido con `zlib.crc32()`, con un test que corre el CLI como dos procesos de Python separados para probarlo al nivel donde el bug realmente vivía.
+
 ---
 
 ## ⚠️ Limitaciones Conocidas
@@ -357,9 +448,11 @@ python -m argus.evals.run                              # harness completo
 - El **tier sandbox de BigQuery** tiene límite de retención de 60 días y restricciones de DML (que este proyecto no necesita — ver `docs/setup-gcp.md`).
 - Solo se generan 3 canales (web/app/pos), no los 6 originalmente contemplados (email/chat/social quedan fuera de alcance de este PoC).
 - El CI corre `dbt build` + evals contra el **mismo** dataset `argus_analytics` de desarrollo local, no uno aislado — ver la nota en `.github/workflows/ci.yml`.
-- El diagnóstico de incidentes es una sola llamada a Claude con los números del finding, no una ronda de queries de seguimiento adicionales — suficiente para el PoC, no la versión más elaborada del "agente investiga por su cuenta".
+- El diagnóstico de `freshness` sigue siendo una sola llamada a Claude — la investigación multi-paso (`argus/monitors/investigate.py`) solo está definida para `volume_drop` y `null_spike` (desglose por país). Freshness no tiene un desglose útil que investigar: si un canal no recibe datos en absoluto, no hay filas que desglosar.
 - Deduplicación de incidentes basada en un archivo JSON local (`state/monitor_state.json`), no en una base de datos — suficiente para un solo proceso/máquina, no pensado para múltiples workers en paralelo.
 - Observabilidad de costo vía JSONL local (`state/usage_log.jsonl`), no OpenTelemetry — mismo criterio de alcance: suficiente para un proceso/máquina, no para un sistema distribuido.
+- El modo escenario soporta dos tipos de perturbación (escalar una métrica, o mover la tasa de cancelación a un objetivo) — no es un motor de simulación de negocio de propósito general.
+- La carga incremental diaria agrega datos sintéticos nuevos, no una fuente de datos real — mantiene el freshness genuinamente vivo, pero sigue siendo un PoC sobre datos generados, no un pipeline productivo.
 
 ---
 
@@ -408,7 +501,8 @@ argus-data-agent/
 │   └── setup-gcp.md                  ← dos service accounts, permisos IAM
 │
 ├── 📂 data/synthetic/
-│   └── generate_data.py              ← generador multicanal, --inject-fault
+│   ├── generate_data.py              ← generador multicanal, --inject-fault, historia completa
+│   └── incremental_load.py           ← agrega un día por vez (WRITE_APPEND), mantiene freshness vivo
 │
 ├── 📂 clients/
 │   └── example.yml                   ← config por cliente (canales, países, mezclas)
@@ -426,19 +520,26 @@ argus-data-agent/
 │   ├── semantic.py                   ← loader/validador de metrics.yml
 │   ├── warehouse.py                  ← único punto de acceso a BigQuery
 │   ├── ask.py                        ← text-to-SQL (CLI, Capacidad 2)
+│   ├── scenario.py                   ← modo "qué pasaría si...?" (extiende Capacidad 2)
 │   ├── digest.py                     ← digest ejecutivo (Capacidad 3)
+│   ├── forecast.py                   ← pronóstico determinista (Capacidad 4)
+│   ├── report.py                     ← reporte diario: pronóstico + investigación (Capacidad 4)
 │   ├── notifiers.py                  ← Notifier Protocol: Console/Slack/Jira/Multi
-│   ├── observability.py              ← tokens/costo por llamada (Fase 10)
+│   ├── observability.py              ← tokens/costo por llamada + reporte agregado
 │   ├── guardrails/sql.py             ← validador de SQL
 │   ├── monitors/
-│   │   ├── checks.py                 ← freshness/volumen/nulls (Capacidad 1)
+│   │   ├── checks.py                 ← freshness/volumen/nulls/budget (Capacidad 1)
+│   │   ├── investigate.py            ← desglose por país antes del diagnóstico
 │   │   ├── state.py                  ← deduplicación de incidentes (cooldown 24h)
-│   │   └── run.py                    ← orquestador: checks → diagnóstico → notify
+│   │   └── run.py                    ← orquestador: checks → investigar → diagnóstico → notify
 │   └── evals/
 │       ├── cases.yml · references/*.sql
 │       └── run.py                    ← scorer de precisión de ejecución
 │
-├── 📂 tests/                          ← 163 tests, sin llamadas reales a red
+├── 📂 reports/                        ← reportes diarios generados (.html, no versionado)
+├── 📂 state/                          ← estado local de runtime (no versionado)
+│
+├── 📂 tests/                          ← 227 tests, sin llamadas reales a red
 │
 └── 📂 .github/workflows/
     └── ci.yml                        ← lint + dbt build + gate de evals
@@ -455,14 +556,16 @@ argus-data-agent/
 ✅ Fase 6     ▸  Harness de evals: 6/6 (100%) + gate de CI activo
 ✅ Fase 7     ▸  Monitoreo autónomo (Capacidad 1): freshness/volumen/nulls + diagnóstico
 ✅ Fase 9     ▸  Digest ejecutivo (Capacidad 3)
-✅ Fase 8     ▸  OpenClaw: skills + cron + SlackNotifier + JiraNotifier, todo real
+✅ Fase 8     ▸  OpenClaw: 5 skills + 4 crons + SlackNotifier + JiraNotifier, todo real
 ✅ Fase 10    ▸  Observabilidad de costo: $0.0034/pregunta medido, no estimado
+✅ Capacidad 4 ▸ Radar predictivo: pronóstico + investigación multi-paso + reporte diario
+✅ Extras     ▸  Modo escenario, alerta de presupuesto, carga incremental (freshness vivo)
 
 Próximo   ▸  Notifiers adicionales (Teams, PagerDuty) sobre el mismo Protocol
+          ▸  Investigación multi-paso extendida a más tipos de check
 
 Futuro    ▸  Ampliar cobertura de evals más allá de 6 casos semilla
           ▸  Aislar CI en su propio dataset (argus_ci) con fixtures propias
-          ▸  Investigación multi-paso en el monitor (follow-up queries, no solo 1 diagnóstico)
           ▸  Deduplicación de incidentes en una tabla en vez de un JSON local
           ▸  Soporte multi-warehouse (Snowflake/DuckDB)
 ```
